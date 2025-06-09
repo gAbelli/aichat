@@ -227,14 +227,29 @@ macro_rules! config_get_fn {
     ($field_name:ident, $fn_name:ident) => {
         fn $fn_name(&self) -> anyhow::Result<String> {
             let api_key = self.config.$field_name.clone();
-            api_key
+            let value = api_key
                 .or_else(|| {
                     let env_prefix = Self::name(&self.config);
                     let env_name =
                         format!("{}_{}", env_prefix, stringify!($field_name)).to_ascii_uppercase();
                     std::env::var(&env_name).ok()
                 })
-                .ok_or_else(|| anyhow::anyhow!("Miss '{}'", stringify!($field_name)))
+                .ok_or_else(|| anyhow::anyhow!("Miss '{}'", stringify!($field_name)))?;
+
+            if let Some(cmd) = value.strip_prefix("cmd:") {
+                let output = std::process::Command::new("sh")
+                    .arg("-c")
+                    .arg(cmd)
+                    .output()?;
+
+                if !output.status.success() {
+                    return Err(anyhow::anyhow!("Command failed: {}", cmd));
+                }
+
+                Ok(String::from_utf8(output.stdout)?.trim().to_string())
+            } else {
+                Ok(value)
+            }
         }
     };
 }
